@@ -2,6 +2,7 @@
 #Date: 02/25/2024
 #This program creates a multi-threaded chat server. The corresponding
 #client.py file is able to send messages to this server.
+#Updates that can be made: Don't create a new thread for each message.
 import socket
 from _thread import *
 import threading
@@ -24,13 +25,27 @@ def main():
 
     #Bind socket to IP and port
     udp_server_socket.bind((local_ip, local_port))
-    print("UDP server up and listening")
+    print("UDP server up and listening...")
 
-    #Creates a thread for each connection to the server.
-    threading.Thread(target=client_socket_thread, 
-        args=(print_lock, udp_server_socket, buffer_size)).start()
+    try: 
+        while True:
+            # Wait for a client to connect
+            message, address = udp_server_socket.recvfrom(buffer_size)
+            message = message.decode('UTF-8').rstrip()
+            
+            #Creates a thread for each connection to the server.
+            threading.Thread(target=client_socket_thread, 
+                args=(print_lock, udp_server_socket, buffer_size, message, address)).start()
+    except KeyboardInterrupt:
+        print("Server shutting down...")
+    finally:
+        udp_server_socket.close()
+        print("Server shut down.")
+        exit()
+        
 
-def client_socket_thread(print_lock, udp_server_socket, buffer_size):
+
+def client_socket_thread(print_lock, udp_server_socket, buffer_size, message, address):
     """ Parameters: print_lock: Lock to prevent collisions in printing to stdout
                     udp_server_socket: UDP socket for the server
                     buffer_size: Maximum size block of text clients are able to send to server
@@ -40,9 +55,6 @@ def client_socket_thread(print_lock, udp_server_socket, buffer_size):
     """
     exit = False
     while not exit:
-        message, address = udp_server_socket.recvfrom(buffer_size)
-        message = message.decode('UTF-8').rstrip()
-
         in_dictionary = client_names.get(address)
         client_names[address] = client_names.get(address, message) 
 
@@ -55,13 +67,17 @@ def client_socket_thread(print_lock, udp_server_socket, buffer_size):
             exit = True
             output = f"> {client_names[address]} has exited the server."
 
-        print_lock.acquire()
-        print(output)
-        print_lock.release()
+        with print_lock:
+            print(output)
+        
 
         for ip_address in client_names:
             udp_server_socket.sendto(bytes(output, 'UTF-8'), ip_address)
-            
+
+        if not exit:
+            message, address = udp_server_socket.recvfrom(buffer_size)
+            message = message.decode('UTF-8').rstrip()
+
     client_names.pop(address) 
 
 if __name__ == "__main__":
